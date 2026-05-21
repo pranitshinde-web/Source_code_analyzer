@@ -1,0 +1,13 @@
+fastapi 
+uvicorn[standard] 
+python-dotenv 
+pydantic 
+langchain 
+langchain-community 
+langchain-text-splitters
+langchain-nvidia-ai-endpoints 
+gitpython 
+sentence-transformers 
+tiktoken
+pysqlite3-binary
+chromadb

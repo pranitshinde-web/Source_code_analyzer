@@ -1,0 +1,26 @@
+# Project Root
+.DS_Store
+*.log
+
+# Backend
+backend/.env
+backend/.venv/
+backend/venv/
+backend/env/
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/chroma_data/
+backend/tmp_repos/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# IDEs & Editors
+.vscode/
+.idea/
