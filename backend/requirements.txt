@@ -11,3 +11,4 @@ sentence-transformers
 tiktoken
 pysqlite3-binary
 chromadb
+sqlalchemy

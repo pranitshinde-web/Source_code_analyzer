@@ -17,6 +17,20 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+export interface ChatSessionMetadata {
+  session_id: string;
+  repo_id: string;
+  title: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  type: string;
+  content: string;
+  additional_kwargs?: any;
+  response_metadata?: any;
+}
+
 export const api = {
   ingest: (repoUrl: string) => axios.post(`${API_BASE}/ingest`, { repo_url: repoUrl }),
   
@@ -30,6 +44,12 @@ export const api = {
 
   getFileContent: (repoId: string, path: string) => 
     axios.get<{ content: string }>(`${API_BASE}/repos/${repoId}/file-content`, { params: { path } }),
+
+  listSessions: () => axios.get<ChatSessionMetadata[]>(`${API_BASE}/chat/sessions`),
+
+  getSessionHistory: (sessionId: string) => axios.get<any[]>(`${API_BASE}/chat/sessions/${sessionId}`),
+
+  clearSession: (sessionId: string) => axios.delete(`${API_BASE}/chat/session/${sessionId}`),
   
   chatStream: async (
     repoId: string, 

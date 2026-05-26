@@ -51,7 +51,7 @@ class ChatService:
                 yield ChatService.format_sse("token", token)
                 
             # 4. Save
-            save_turn(session_id, question, full_answer)
+            save_turn(session_id, question, full_answer, repo_id=repo_id)
             
             # 5. Done
             elapsed = round(time.time() - start_time, 2)

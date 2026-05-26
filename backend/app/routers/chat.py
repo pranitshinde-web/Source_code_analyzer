@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.services.chat import ChatService
 from app.services.deps import get_chroma_client
 from app.services.vector_store import collection_exists
-from app.core.memory import clear_session
+from app.core.memory import clear_session, list_sessions, get_session_full_history
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,24 @@ async def chat(
         raise
     except Exception as e:
         logger.error(f"Chat error: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.get("/sessions")
+async def get_sessions():
+    """List all chat sessions."""
+    try:
+        return list_sessions()
+    except Exception as e:
+        logger.error(f"List sessions error: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.get("/sessions/{session_id}")
+async def get_session_history(session_id: str):
+    """Get full history for a session."""
+    try:
+        return get_session_full_history(session_id)
+    except Exception as e:
+        logger.error(f"Get session history error: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.delete("/session/{session_id}")

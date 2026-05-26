@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from app.routers import ingest, chat, status, files
 from app.core.config import settings
-
+from app.core.database import engine, Base
 load_dotenv()
 
 
@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     # Startup: initialise ChromaDB persistent client and attach to app state
     os.makedirs(settings.CHROMA_PERSIST_DIR, exist_ok=True)
     os.makedirs(settings.TMP_REPOS_DIR, exist_ok=True)
+    # Create SQL tables
+    Base.metadata.create_all(bind=engine)
+    print(f"[startup] SQL database initialised.")
 
     app.state.chroma_client = chromadb.PersistentClient(
         path=settings.CHROMA_PERSIST_DIR

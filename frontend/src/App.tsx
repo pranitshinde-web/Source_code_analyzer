@@ -3,7 +3,7 @@ import { Sidebar } from "./components/organisms/Sidebar";
 import { ChatWindow } from "./components/organisms/ChatWindow";
 import { IngestModal } from "./components/molecules/IngestModal";
 import { FileViewer } from "./components/molecules/FileViewer";
-import { api, RepoJob } from "./services/api";
+import { api, RepoJob, ChatSessionMetadata, ChatMessage } from "./services/api";
 import { v4 as uuidv4 } from "uuid";
 
 interface Message {
@@ -17,28 +17,77 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(uuidv4());
+  
+  const [sessionId, setSessionId] = useState(uuidv4());
+  const [sessions, setSessions] = useState<ChatSessionMetadata[]>([]);
   
   const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
 
-  // Initial load: fetch existing repositories/jobs
+  // Initial load: fetch existing repositories and sessions
   useEffect(() => {
     fetchRepos();
+    fetchSessions();
   }, []);
 
   const fetchRepos = async () => {
-    console.log("Fetching repos from API...");
     try {
       const res = await api.listJobs();
-      console.log("API Response received:", res.data);
       setRepos(res.data);
-      console.log("Repos state updated with:", res.data.length, "items");
       if (res.data.length > 0 && !activeRepoId) {
-        console.log("Setting active repo to:", res.data[0].repo_id);
         setActiveRepoId(res.data[0].repo_id);
       }
     } catch (err) {
-      console.error("FAILED to fetch repos. Is the backend at http://localhost:8000 up?", err);
+      console.error("FAILED to fetch repos", err);
+    }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const res = await api.listSessions();
+      console.log("Fetched sessions:", res.data);
+      setSessions(res.data);
+    } catch (err) {
+      console.error("Failed to fetch sessions", err);
+    }
+  };
+
+  const handleSelectSession = async (id: string) => {
+    try {
+      const res = await api.getSessionHistory(id);
+      // Map database messages back to UI format
+      // LangChain message_to_dict format: { type: 'human', data: { content: '...' } }
+      const history: Message[] = res.data.map((m: any) => ({
+        role: m.type === 'human' ? 'user' : 'assistant',
+        content: m.data?.content || m.content || ""
+      }));
+      
+      setMessages(history);
+      setSessionId(id);
+      
+      // Also try to find and set the active repo if available in metadata
+      const sessionMeta = sessions.find(s => s.session_id === id);
+      if (sessionMeta && sessionMeta.repo_id !== 'unknown') {
+        setActiveRepoId(sessionMeta.repo_id);
+      }
+    } catch (err) {
+      console.error("Failed to load session history", err);
+    }
+  };
+
+  const handleNewChat = () => {
+    setSessionId(uuidv4());
+    setMessages([]);
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    try {
+      await api.clearSession(id);
+      if (id === sessionId) {
+        handleNewChat();
+      }
+      fetchSessions();
+    } catch (err) {
+      console.error("Failed to delete session", err);
     }
   };
 
@@ -64,19 +113,16 @@ function App() {
             const newMessages = [...prev];
             const lastMsgIndex = newMessages.length - 1;
             const lastMsg = newMessages[lastMsgIndex];
-            
-            // Create a new object for the message to trigger re-render
             newMessages[lastMsgIndex] = { 
               ...lastMsg, 
               content: lastMsg.content + token 
             };
-            
             return newMessages;
           });
         },
         (doneData) => {
           setIsLoading(false);
-          console.log("Chat done", doneData);
+          fetchSessions(); // Refresh list to show updated title/timestamp
         },
         (error) => {
           setIsLoading(false);
@@ -93,7 +139,7 @@ function App() {
     try {
       await api.ingest(url);
       setIsIngestModalOpen(false);
-      fetchRepos(); // Refresh list to show new job
+      fetchRepos(); 
     } catch (err: any) {
       alert("Failed to start ingestion: " + (err.response?.data?.detail || err.message));
     }
@@ -106,7 +152,6 @@ function App() {
       setViewingFile({ path, content: res.data.content });
     } catch (err) {
       console.error("Failed to fetch file content", err);
-      alert("Failed to open file.");
     }
   };
 
@@ -117,11 +162,17 @@ function App() {
         activeRepo={activeRepoId}
         onSelectRepo={(id) => {
           setActiveRepoId(id);
-          setMessages([]); // Clear chat when switching repos
-          setViewingFile(null); // Clear file viewer
+          // When switching repos manually, we start a fresh chat context for that repo
+          handleNewChat();
+          setViewingFile(null);
         }}
         onNewIngest={() => setIsIngestModalOpen(true)}
         onFileClick={handleFileClick}
+        sessions={sessions}
+        activeSessionId={sessionId}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onNewChat={handleNewChat}
       />
       
       <main className="flex-1 relative overflow-hidden flex flex-col">
