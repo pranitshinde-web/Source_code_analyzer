@@ -2,6 +2,7 @@ import logging
 import chromadb
 from app.core.config import settings
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
+from app.services.reranker import get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ class RetrieverError(Exception):
 
 def retrieve_chunks(client: chromadb.ClientAPI, repo_id: str, query: str) -> list[dict]:
     """
-    Retrieves relevant code chunks for a given query from ChromaDB.
+    Retrieves relevant code chunks for a given query from ChromaDB and re-ranks them.
     """
     try:
         # We need to embed the query first to search in Chroma
@@ -24,7 +25,7 @@ def retrieve_chunks(client: chromadb.ClientAPI, repo_id: str, query: str) -> lis
         collection = client.get_collection(name=repo_id)
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=settings.RETRIEVAL_TOP_K,
+            n_results=settings.RETRIEVAL_CANDIDATES,
         )
         
         chunks = []
@@ -35,6 +36,13 @@ def retrieve_chunks(client: chromadb.ClientAPI, repo_id: str, query: str) -> lis
                     "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
                     "distance": results["distances"][0][i] if results["distances"] else 0
                 })
+        
+        # Two-stage retrieval: Re-rank the candidates
+        if chunks:
+            logger.info(f"Re-ranking {len(chunks)} candidates for query: {query}")
+            reranker = get_reranker()
+            chunks = reranker.rerank(query, chunks)
+            
         return chunks
     except Exception as e:
         logger.error(f"Error during retrieval: {e}")

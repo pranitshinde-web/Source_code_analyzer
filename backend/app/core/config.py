@@ -14,10 +14,13 @@ class Settings(BaseSettings):
     EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 2048
-    RETRIEVAL_TOP_K: int = 6
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
     MEMORY_WINDOW_SIZE: int = 5
+    RETRIEVAL_TOP_K: int = 6
+    RETRIEVAL_CANDIDATES: int = 20
+    RERANK_TOP_K: int = 3
+    CROSS_ENCODER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     CHROMA_PERSIST_DIR: str = "./chroma_data"
     TMP_REPOS_DIR: str = "./tmp_repos"
     CORS_ORIGIN: str = "http://localhost:5174"
