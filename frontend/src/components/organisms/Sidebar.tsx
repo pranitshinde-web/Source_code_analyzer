@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Terminal, ChevronDown, ChevronRight, MessageSquare, Trash2 } from "lucide-react";
+import { Plus, Terminal, ChevronDown, ChevronRight, MessageSquare, Trash2, AlertCircle } from "lucide-react";
 import { Button } from "../atoms/Button";
 import { api, FileNode, ChatSessionMetadata } from "../../services/api";
 import { FileExplorer } from "./FileExplorer";
@@ -82,17 +82,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {repos.map((repo) => (
               <div key={repo.repo_id}>
                 <button
-                  onClick={() => handleRepoClick(repo.repo_id)}
+                  onClick={() => repo.status === 'done' && handleRepoClick(repo.repo_id)}
+                  disabled={repo.status !== 'done' && repo.status !== 'processing'}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
                     activeRepo === repo.repo_id ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
-                  }`}
+                  } ${repo.status === 'error' || repo.status === 'failed' ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
-                  {isExpanded && activeRepo === repo.repo_id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <Terminal size={14} />
-                  <span className="truncate">{repo.repo_id}</span>
+                  <div className="flex-1 flex items-center gap-2 overflow-hidden">
+                    {isExpanded && activeRepo === repo.repo_id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    {repo.status === 'error' || repo.status === 'failed' ? <AlertCircle size={14} className="text-red-500" /> : <Terminal size={14} />}
+                    <span className="truncate">{repo.repo_id}</span>
+                  </div>
+                  {repo.status === 'processing' && (
+                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  )}
                 </button>
                 
-                {isExpanded && activeRepo === repo.repo_id && (
+                {isExpanded && activeRepo === repo.repo_id && repo.status === 'done' && (
                   <div className="mt-1 ml-4 border-l border-gray-800 overflow-hidden">
                     <FileExplorer files={files} onFileClick={onFileClick} />
                   </div>

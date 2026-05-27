@@ -28,7 +28,7 @@ async def chat(
         if not collection_exists(chroma_client, repo_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Repository not indexed."
+                detail=f"Repository '{repo_id}' is not indexed or ingestion failed. Please re-ingest."
             )
             
         return StreamingResponse(

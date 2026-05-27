@@ -1,16 +1,16 @@
 # Project Root
 .DS_Store
 *.log
+__pycache__
+*.pyc
+*.pyo
+*.pyd
 
 # Backend
 backend/.env
 backend/.venv/
 backend/venv/
 backend/env/
-**/__pycache__/
-**/*.py[cod]
-**/*$py.class
-**/.pytest_cache/
 backend/chroma_data/
 backend/tmp_repos/
 

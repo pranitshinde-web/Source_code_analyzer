@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     EMBED_MODEL: str = "nvidia/nv-embedqa-e5-v5"
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 2048
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 50
+    CHUNK_SIZE: int = 300
+    CHUNK_OVERLAP: int = 30
     MEMORY_WINDOW_SIZE: int = 5
     RETRIEVAL_TOP_K: int = 6
     RETRIEVAL_CANDIDATES: int = 20
