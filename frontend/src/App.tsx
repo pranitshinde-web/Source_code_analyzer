@@ -3,7 +3,8 @@ import { Sidebar } from "./components/organisms/Sidebar";
 import { ChatWindow } from "./components/organisms/ChatWindow";
 import { IngestModal } from "./components/molecules/IngestModal";
 import { FileViewer } from "./components/molecules/FileViewer";
-import { api, RepoJob, ChatSessionMetadata, ChatMessage } from "./services/api";
+import { Auth } from "./components/organisms/Auth";
+import { api, RepoJob, ChatSessionMetadata} from "./services/api";
 import { v4 as uuidv4 } from "uuid";
 
 interface Message {
@@ -12,6 +13,7 @@ interface Message {
 }
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem("access_token"));
   const [repos, setRepos] = useState<RepoJob[]>([]);
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -25,9 +27,11 @@ function App() {
 
   // Initial load: fetch existing repositories and sessions
   useEffect(() => {
-    fetchRepos();
-    fetchSessions();
-  }, []);
+    if (isAuthenticated) {
+      fetchRepos();
+      fetchSessions();
+    }
+  }, [isAuthenticated]);
 
   const fetchRepos = async () => {
     try {
@@ -44,18 +48,25 @@ function App() {
   const fetchSessions = async () => {
     try {
       const res = await api.listSessions();
-      console.log("Fetched sessions:", res.data);
       setSessions(res.data);
     } catch (err) {
       console.error("Failed to fetch sessions", err);
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    setIsAuthenticated(false);
+  };
+
+  if (!isAuthenticated) {
+    return <Auth onAuthSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   const handleSelectSession = async (id: string) => {
     try {
       const res = await api.getSessionHistory(id);
-      // Map database messages back to UI format
-      // LangChain message_to_dict format: { type: 'human', data: { content: '...' } }
       const history: Message[] = res.data.map((m: any) => ({
         role: m.type === 'human' ? 'user' : 'assistant',
         content: m.data?.content || m.content || ""
@@ -64,7 +75,6 @@ function App() {
       setMessages(history);
       setSessionId(id);
       
-      // Also try to find and set the active repo if available in metadata
       const sessionMeta = sessions.find(s => s.session_id === id);
       if (sessionMeta && sessionMeta.repo_id !== 'unknown') {
         setActiveRepoId(sessionMeta.repo_id);
@@ -91,15 +101,31 @@ function App() {
     }
   };
 
+  const handleDeleteRepo = async (repoId: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${repoId}? This will remove all files, indices, and chat history.`)) {
+      return;
+    }
+    try {
+      await api.deleteRepo(repoId);
+      if (activeRepoId === repoId) {
+        setActiveRepoId(null);
+        handleNewChat();
+      }
+      fetchRepos();
+      fetchSessions();
+    } catch (err) {
+      console.error("Failed to delete repo", err);
+      alert("Failed to delete repository.");
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
     if (!activeRepoId) return;
 
-    // Add user message immediately
     const userMsg: Message = { role: "user", content };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
-    // Prepare placeholder for AI response
     const aiMsg: Message = { role: "assistant", content: "" };
     setMessages((prev) => [...prev, aiMsg]);
 
@@ -120,9 +146,9 @@ function App() {
             return newMessages;
           });
         },
-        (doneData) => {
+        () => {
           setIsLoading(false);
-          fetchSessions(); // Refresh list to show updated title/timestamp
+          fetchSessions();
         },
         (error) => {
           setIsLoading(false);
@@ -162,7 +188,6 @@ function App() {
         activeRepo={activeRepoId}
         onSelectRepo={(id) => {
           setActiveRepoId(id);
-          // When switching repos manually, we start a fresh chat context for that repo
           handleNewChat();
           setViewingFile(null);
         }}
@@ -172,7 +197,9 @@ function App() {
         activeSessionId={sessionId}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
+        onDeleteRepo={handleDeleteRepo}
         onNewChat={handleNewChat}
+        onLogout={handleLogout}
       />
       
       <main className="flex-1 relative overflow-hidden flex flex-col">

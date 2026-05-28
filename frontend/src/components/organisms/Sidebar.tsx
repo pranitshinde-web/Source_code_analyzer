@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Terminal, ChevronDown, ChevronRight, MessageSquare, Trash2, AlertCircle } from "lucide-react";
+import React, { useState } from 'react';
+import { Plus, FolderGit2, MessageSquare, Trash2, ChevronDown, ChevronRight, Loader2, LogOut } from "lucide-react";
 import { Button } from "../atoms/Button";
 import { api, FileNode, ChatSessionMetadata } from "../../services/api";
 import { FileExplorer } from "./FileExplorer";
@@ -19,88 +19,77 @@ interface SidebarProps {
   activeSessionId: string;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onDeleteRepo: (repoId: string) => void;
   onNewChat: () => void;
+  onLogout: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   onNewIngest, repos, activeRepo, onSelectRepo, onFileClick,
-  sessions, activeSessionId, onSelectSession, onDeleteSession, onNewChat
+  sessions, activeSessionId, onSelectSession, onDeleteSession, onDeleteRepo, onNewChat, onLogout
 }) => {
-  const [files, setFiles] = useState<FileNode[]>([]);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedRepos, setExpandedRepos] = useState<Record<string, boolean>>({});
 
-  // Filter sessions based on the selected repo
   const filteredSessions = sessions.filter(s => s.repo_id === activeRepo);
 
-  useEffect(() => {
-    if (activeRepo) {
-      api.getFiles(activeRepo).then(res => {
-        setFiles(res.data);
-      }).catch(err => {
-        console.error("Failed to fetch files", err);
-        setFiles([]);
-      });
-    }
-  }, [activeRepo]);
-
-  const handleRepoClick = (repoId: string) => {
-    if (activeRepo === repoId) {
-      setIsExpanded(!isExpanded);
-    } else {
-      onSelectRepo(repoId);
-      setIsExpanded(true);
-    }
+  const toggleRepo = (e: React.MouseEvent, repoId: string) => {
+    e.stopPropagation();
+    setExpandedRepos(prev => ({ ...prev, [repoId]: !prev[repoId] }));
   };
 
   return (
-    <div className="w-[260px] h-screen bg-gray-900 text-white flex flex-col border-r border-gray-800">
-      <div className="p-3 shrink-0 flex flex-col gap-2">
+    <div className="w-[280px] h-screen bg-gray-900 text-gray-200 flex flex-col border-r border-gray-700 shadow-xl">
+      {/* Top Header/Action */}
+      <div className="p-3">
         <Button 
           variant="ghost" 
-          className="w-full flex items-center justify-start gap-3 border border-gray-700 hover:bg-gray-800 text-sm py-3"
+          className="w-full flex items-center justify-between gap-3 border border-gray-700 hover:bg-gray-800 text-sm py-2 px-3 rounded-lg text-gray-100"
           onClick={onNewChat}
         >
-          <Plus size={16} />
-          New Chat
-        </Button>
-        <Button 
-          variant="ghost" 
-          className="w-full flex items-center justify-start gap-3 border border-gray-700 hover:bg-gray-800 text-sm py-3 text-gray-400"
-          onClick={onNewIngest}
-        >
-          <Plus size={16} />
-          New Repository
+          <span className="flex items-center gap-2 font-medium">
+            <Plus size={18} /> New chat
+          </span>
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-6">
-        <div>
-          <div className="text-xs font-semibold text-gray-500 px-3 py-2 uppercase tracking-wider">
+      <div className="flex-1 overflow-y-auto px-2 py-1 scrollbar-thin scrollbar-thumb-gray-700">
+        {/* Repositories */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
             Repositories
+            <button onClick={onNewIngest} className="hover:text-white transition-colors">
+              <Plus size={14} />
+            </button>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {repos.map((repo) => (
-              <div key={repo.repo_id}>
-                <button
-                  onClick={() => repo.status === 'done' && handleRepoClick(repo.repo_id)}
-                  disabled={repo.status !== 'done' && repo.status !== 'processing'}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
-                    activeRepo === repo.repo_id ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
-                  } ${repo.status === 'error' || repo.status === 'failed' ? "opacity-60 cursor-not-allowed" : ""}`}
+              <div key={repo.repo_id} className="group">
+                <div 
+                  onClick={() => repo.status === 'done' && onSelectRepo(repo.repo_id)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                    activeRepo === repo.repo_id ? "bg-gray-800" : "hover:bg-gray-800"
+                  }`}
                 >
-                  <div className="flex-1 flex items-center gap-2 overflow-hidden">
-                    {isExpanded && activeRepo === repo.repo_id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    {repo.status === 'error' || repo.status === 'failed' ? <AlertCircle size={14} className="text-red-500" /> : <Terminal size={14} />}
+                  <button onClick={(e) => toggleRepo(e, repo.repo_id)} className="text-gray-400">
+                    {expandedRepos[repo.repo_id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                  
+                  <div className="flex-1 flex items-center gap-2 truncate">
+                    {repo.status === 'processing' ? <Loader2 size={14} className="animate-spin text-blue-500" /> : <FolderGit2 size={14} className="text-gray-400" />}
                     <span className="truncate">{repo.repo_id}</span>
                   </div>
-                  {repo.status === 'processing' && (
-                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  )}
-                </button>
+
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onDeleteRepo(repo.repo_id); }}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
                 
-                {isExpanded && activeRepo === repo.repo_id && repo.status === 'done' && (
-                  <div className="mt-1 ml-4 border-l border-gray-800 overflow-hidden">
-                    <FileExplorer files={files} onFileClick={onFileClick} />
+                {expandedRepos[repo.repo_id] && repo.status === 'done' && (
+                  <div className="pl-6 py-1">
+                    <FileExplorer repoId={repo.repo_id} onFileClick={onFileClick} />
                   </div>
                 )}
               </div>
@@ -108,46 +97,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
+        {/* Chat History */}
         <div>
-          <div className="text-xs font-semibold text-gray-500 px-3 py-2 uppercase tracking-wider">
-            Chat History {activeRepo && `— ${activeRepo}`}
+          <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            {activeRepo ? `History — ${activeRepo}` : "History"}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {filteredSessions.map((session) => (
-              <div key={session.session_id} className="group flex items-center gap-1">
-                <button
+              <div key={session.session_id} className="group flex items-center justify-between px-3 py-2 rounded-lg text-sm hover:bg-gray-800 transition-colors cursor-pointer">
+                <div 
                   onClick={() => onSelectSession(session.session_id)}
-                  className={`flex-1 text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
-                    activeSessionId === session.session_id ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
-                  }`}
+                  className={`flex items-center gap-2 flex-1 truncate ${activeSessionId === session.session_id ? "text-white font-medium" : "text-gray-400"}`}
                 >
                   <MessageSquare size={14} />
-                  <span className="truncate flex-1">{session.title}</span>
-                </button>
+                  <span className="truncate">{session.title}</span>
+                </div>
                 <button 
-                  onClick={() => onDeleteSession(session.session_id)}
-                  className="opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-400 transition-all"
+                  onClick={(e) => { e.stopPropagation(); onDeleteSession(session.session_id); }}
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all"
                 >
                   <Trash2 size={14} />
                 </button>
               </div>
             ))}
-            {filteredSessions.length === 0 && (
-              <div className="px-3 py-2 text-xs text-gray-600 italic">
-                {activeRepo ? "No chats for this repo" : "Select a repo to see history"}
-              </div>
-            )}
           </div>
         </div>
       </div>
 
 
       <div className="p-3 border-t border-gray-800">
-        <div className="flex items-center gap-3 px-3 py-2 text-sm text-gray-300">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold">
-            PS
+        <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-gray-300">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold">
+               PS
+             </div>
+             <span>Pranit S.</span>
           </div>
-          <span>Pranit S.</span>
+          <button onClick={onLogout} className="hover:text-red-400 transition-colors">
+            <LogOut size={16} />
+          </button>
         </div>
       </div>
     </div>

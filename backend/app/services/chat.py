@@ -11,12 +11,10 @@ logger = logging.getLogger(__name__)
 
 class ChatService:
     @staticmethod
-    def format_sse(event: str, data: str | dict) -> str:
-        """Format a Server-Sent Event frame."""
-        if isinstance(data, dict):
-            data = json.dumps(data, ensure_ascii=False)
-        safe_data = data.replace("\n", "\\n")
-        return f"event: {event}\ndata: {safe_data}\n\n"
+    def format_sse(event: str, data: any) -> str:
+        """Format a Server-Sent Event frame. Always JSON-encode data for consistency."""
+        json_data = json.dumps(data, ensure_ascii=False)
+        return f"event: {event}\ndata: {json_data}\n\n"
 
     @staticmethod
     async def rag_stream(
@@ -24,6 +22,7 @@ class ChatService:
         question: str,
         session_id: str,
         chroma_client,
+        user_id: int
     ) -> AsyncGenerator[str, None]:
         """Full RAG pipeline as SSE stream."""
         start_time = time.time()
@@ -51,7 +50,7 @@ class ChatService:
                 yield ChatService.format_sse("token", token)
                 
             # 4. Save
-            save_turn(session_id, question, full_answer, repo_id=repo_id)
+            save_turn(session_id, question, full_answer, repo_id=repo_id, user_id=user_id)
             
             # 5. Done
             elapsed = round(time.time() - start_time, 2)

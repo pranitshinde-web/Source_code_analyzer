@@ -10,7 +10,7 @@ import chromadb
 import os
 from dotenv import load_dotenv
 
-from app.routers import ingest, chat, status, files
+from app.routers import ingest, chat, status, files, auth
 from app.core.config import settings
 from app.core.database import engine, Base
 load_dotenv()
@@ -64,6 +64,7 @@ app.include_router(ingest.router,prefix="/ingest",tags=["Ingestion"])
 app.include_router(chat.router,prefix="/chat",tags=["Chat"])
 app.include_router(status.router, prefix="/status", tags=["Status"])
 app.include_router(files.router, prefix="/repos", tags=["Files"])
+app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
 @app.get("/health", tags=["Health"])
 async def health_check():

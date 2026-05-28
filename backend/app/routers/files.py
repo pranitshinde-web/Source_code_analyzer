@@ -1,9 +1,11 @@
 import os
 import logging
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 from app.core.config import settings
+from app.services.deps import get_current_user
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,16 +47,26 @@ def build_tree(root_dir: str, current_dir: str) -> List[FileNode]:
     return tree
 
 @router.get("/{repo_id}/files")
-async def get_repo_files(repo_id: str):
-    repo_path = os.path.join(settings.TMP_REPOS_DIR, repo_id)
+async def get_repo_files(repo_id: str, current_user: User = Depends(get_current_user)):
+    # Ensure repo_id is scoped to the user
+    prefix = f"user_{current_user.id}__"
+    repo_id = repo_id.lower()
+    scoped_repo_id = repo_id if repo_id.startswith(prefix) else f"{prefix}{repo_id}"
+    
+    repo_path = os.path.join(settings.TMP_REPOS_DIR, scoped_repo_id)
     if not os.path.exists(repo_path):
         raise HTTPException(status_code=404, detail="Repository files not found on disk.")
     
     return build_tree(repo_path, repo_path)
 
 @router.get("/{repo_id}/file-content")
-async def get_file_content(repo_id: str, path: str):
-    repo_path = os.path.join(settings.TMP_REPOS_DIR, repo_id)
+async def get_file_content(repo_id: str, path: str, current_user: User = Depends(get_current_user)):
+    # Ensure repo_id is scoped to the user
+    prefix = f"user_{current_user.id}__"
+    repo_id = repo_id.lower()
+    scoped_repo_id = repo_id if repo_id.startswith(prefix) else f"{prefix}{repo_id}"
+
+    repo_path = os.path.join(settings.TMP_REPOS_DIR, scoped_repo_id)
     file_path = os.path.join(repo_path, path)
     
     # Security check: ensure the path is within the repo directory

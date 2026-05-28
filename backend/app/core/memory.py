@@ -29,7 +29,7 @@ def get_history(session_id: str) -> list[BaseMessage]:
     finally:
         db.close()
 
-def save_turn(session_id: str, human_msg: str, ai_msg: str, repo_id: str = "unknown") -> None:
+def save_turn(session_id: str, human_msg: str, ai_msg: str, repo_id: str = "unknown", user_id: int = 0) -> None:
     """Saves a single Q&A turn to SQLite."""
     db = SessionLocal()
     try:
@@ -40,6 +40,7 @@ def save_turn(session_id: str, human_msg: str, ai_msg: str, repo_id: str = "unkn
             session = ChatSession(
                 session_id=session_id,
                 repo_id=repo_id,
+                user_id=user_id,
                 title=title,
                 messages=[]
             )
@@ -76,10 +77,10 @@ def clear_session(session_id: str) -> bool:
     finally:
         db.close()
 
-def list_sessions() -> list[dict]:
+def list_sessions(user_id: int) -> list[dict]:
     db = SessionLocal()
     try:
-        sessions = db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
+        sessions = db.query(ChatSession).filter(ChatSession.user_id == user_id).order_by(ChatSession.updated_at.desc()).all()
         result = []
         for s in sessions:
             # Handle potential string type from SQLite

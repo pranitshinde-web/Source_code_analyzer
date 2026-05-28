@@ -1,6 +1,42 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 
 const API_BASE = "http://localhost:8001";
+
+const apiClient = axios.create({
+  baseURL: API_BASE,
+  headers: { "Content-Type": "application/json" },
+});
+
+// Request interceptor: attach token
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem("access_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// Response interceptor: handle token refresh
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && originalRequest && !(originalRequest as any)._retry) {
+      (originalRequest as any)._retry = true;
+      try {
+        const refreshToken = localStorage.getItem("refresh_token");
+        const { data } = await axios.post(`${API_BASE}/auth/refresh`, { token: refreshToken });
+        localStorage.setItem("access_token", data.access_token);
+        originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        window.location.href = "/login";
+        return Promise.reject(refreshError);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface RepoJob {
   repo_id: string;
@@ -24,32 +60,22 @@ export interface ChatSessionMetadata {
   updated_at: string;
 }
 
-export interface ChatMessage {
-  type: string;
-  content: string;
-  additional_kwargs?: any;
-  response_metadata?: any;
-}
-
 export const api = {
-  ingest: (repoUrl: string) => axios.post(`${API_BASE}/ingest`, { repo_url: repoUrl }),
-  
-  getStatus: (repoId: string) => axios.get<RepoJob>(`${API_BASE}/status/${repoId}`),
-  
-  listJobs: () => axios.get<RepoJob[]>(`${API_BASE}/status`),
-  
-  deleteRepo: (repoId: string) => axios.delete(`${API_BASE}/ingest/${repoId}`),
+  login: (data: any) => apiClient.post("/auth/login", data),
+  register: (data: any) => apiClient.post("/auth/register", data),
 
-  getFiles: (repoId: string) => axios.get<FileNode[]>(`${API_BASE}/repos/${repoId}/files`),
+  ingest: (repoUrl: string) => apiClient.post("/ingest", { repo_url: repoUrl }),
+  getStatus: (repoId: string) => apiClient.get<RepoJob>(`/status/${repoId}`),
+  listJobs: () => apiClient.get<RepoJob[]>(`/status`),
+  deleteRepo: (repoId: string) => apiClient.delete(`/ingest/${repoId}`),
 
+  getFiles: (repoId: string) => apiClient.get<FileNode[]>(`/repos/${repoId}/files`),
   getFileContent: (repoId: string, path: string) => 
-    axios.get<{ content: string }>(`${API_BASE}/repos/${repoId}/file-content`, { params: { path } }),
+    apiClient.get<{ content: string }>(`/repos/${repoId}/file-content`, { params: { path } }),
 
-  listSessions: () => axios.get<ChatSessionMetadata[]>(`${API_BASE}/chat/sessions`),
-
-  getSessionHistory: (sessionId: string) => axios.get<any[]>(`${API_BASE}/chat/sessions/${sessionId}`),
-
-  clearSession: (sessionId: string) => axios.delete(`${API_BASE}/chat/session/${sessionId}`),
+  listSessions: () => apiClient.get<ChatSessionMetadata[]>(`/chat/sessions`),
+  getSessionHistory: (sessionId: string) => apiClient.get<any[]>(`/chat/sessions/${sessionId}`),
+  clearSession: (sessionId: string) => apiClient.delete(`/chat/session/${sessionId}`),
   
   chatStream: async (
     repoId: string, 
@@ -62,16 +88,14 @@ export const api = {
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repo_id: repoId,
-          question: question,
-          session_id: sessionId,
-        }),
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("access_token")}`
+        },
+        body: JSON.stringify({ repo_id: repoId, question, session_id: sessionId }),
       });
 
       if (!response.ok) throw new Error("Chat request failed");
-
       const reader = response.body?.getReader();
       if (!reader) throw new Error("Could not get stream reader");
 
@@ -82,27 +106,29 @@ export const api = {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-
         for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.replace("event: ", "").trim();
-          } else if (line.startsWith("data: ")) {
-            const data = line.replace("data: ", "").trim();
-            if (eventType === "token") {
-              onToken(data);
-            } else if (eventType === "done") {
-              onDone(JSON.parse(data));
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+
+          if (trimmedLine.startsWith("event: ")) {
+            eventType = trimmedLine.replace("event: ", "").trim();
+          } else if (trimmedLine.startsWith("data: ")) {
+            try {
+              const rawData = trimmedLine.replace("data: ", "").trim();
+              const data = JSON.parse(rawData);
+              if (eventType === "token") onToken(data);
+              else if (eventType === "done") onDone(data);
+              else if (eventType === "error") onError(data);
+              eventType = "";
+            } catch (parseErr) {
+              console.error("Failed to parse SSE data:", trimmedLine, parseErr);
             }
-            eventType = ""; // Reset for next event
           }
         }
       }
-    } catch (err) {
-      onError(err);
-    }
+    } catch (err) { onError(err); }
   }
 };

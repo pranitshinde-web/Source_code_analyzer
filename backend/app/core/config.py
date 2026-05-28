@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     TMP_REPOS_DIR: str = "./tmp_repos"
     CORS_ORIGIN: str = "http://localhost:5174"
 
+    # Security settings
+    SECRET_KEY: str = "super-secret-key-change-me"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     model_config = SettingsConfigDict(
         env_file=".env",          # load from backend/.env
         env_file_encoding="utf-8",

@@ -12,3 +12,5 @@ tiktoken
 pysqlite3-binary
 chromadb
 sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
