@@ -19,21 +19,46 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && originalRequest && !(originalRequest as any)._retry) {
+    
+    // Handle 401 Unauthorized
+    if (
+      error.response?.status === 401 && 
+      originalRequest && 
+      !(originalRequest as any)._retry &&
+      !originalRequest.url?.includes("/auth/")
+    ) {
       (originalRequest as any)._retry = true;
       try {
         const refreshToken = localStorage.getItem("refresh_token");
+        if (!refreshToken) throw new Error("No refresh token");
+        
         const { data } = await axios.post(`${API_BASE}/auth/refresh`, { token: refreshToken });
         localStorage.setItem("access_token", data.access_token);
-        originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
+        }
         return apiClient(originalRequest);
       } catch (refreshError) {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
-        window.location.href = "/login";
+        
+        // Clear state and reload only if we were actually trying to use a protected route
+        // and are not already in the middle of an auth action
+        if (window.location.pathname !== "/") {
+          window.location.href = "/";
+        } else {
+          // If we're already on root, a simple reload is enough to reset App state
+          window.location.reload();
+        }
         return Promise.reject(refreshError);
       }
     }
+    
+    // Handle Network Errors (backend down)
+    if (!error.response) {
+      console.error("Network error: Backend may be down");
+    }
+
     return Promise.reject(error);
   }
 );

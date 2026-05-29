@@ -14,6 +14,9 @@ interface Message {
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem("access_token"));
+  const [username, setUsername] = useState<string | null>(localStorage.getItem("username"));
+  const [isInitialising, setIsInitialising] = useState(true);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [repos, setRepos] = useState<RepoJob[]>([]);
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -25,13 +28,83 @@ function App() {
   
   const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
 
+  // Initial authentication verification and data fetch
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (isAuthenticated) {
+        try {
+          // Verify token by attempting to fetch repos
+          const res = await api.listJobs();
+          setRepos(res.data);
+          if (res.data.length > 0 && !activeRepoId) {
+            setActiveRepoId(res.data[0].repo_id);
+          }
+          await fetchSessions();
+          setBackendError(null);
+        } catch (err: any) {
+          console.error("Initial auth check failed", err);
+          if (err.response?.status === 401) {
+            // Token is invalid, log out
+            handleLogout();
+          } else if (!err.response) {
+            // Network error (backend likely down or starting up)
+            setBackendError("Connecting to backend...");
+            // We'll keep trying in the background or just wait
+          }
+        }
+      }
+      setIsInitialising(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  // Polling for backend readiness if it's down
+  useEffect(() => {
+    let interval: number | undefined;
+    if (backendError && isInitialising === false) {
+      interval = window.setInterval(async () => {
+        try {
+          await api.listJobs();
+          setBackendError(null);
+          if (isAuthenticated) {
+            fetchRepos();
+            fetchSessions();
+          }
+        } catch (err) {
+          // Still down
+        }
+      }, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [backendError, isInitialising, isAuthenticated]);
+
   // Initial load: fetch existing repositories and sessions
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isInitialising && !backendError) {
       fetchRepos();
       fetchSessions();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isInitialising, backendError]);
+
+  // Polling for repo status while any repo is in progress
+  useEffect(() => {
+    let interval: number | undefined;
+    
+    const hasActiveJobs = repos.some(r => r.status === 'queued' || r.status === 'processing');
+    
+    if (hasActiveJobs && isAuthenticated) {
+      interval = window.setInterval(() => {
+        fetchRepos();
+      }, 3000); // Poll every 3 seconds
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [repos, isAuthenticated]);
 
   const fetchRepos = async () => {
     try {
@@ -57,11 +130,62 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    localStorage.removeItem("username");
+    
+    // Clear all user-specific state
+    setRepos([]);
+    setActiveRepoId(null);
+    setMessages([]);
+    setSessions([]);
+    setSessionId(uuidv4());
+    setViewingFile(null);
+    setUsername(null);
+    
     setIsAuthenticated(false);
   };
 
+  if (isInitialising) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+        <p className="text-sm font-medium animate-pulse">Initialising application...</p>
+      </div>
+    );
+  }
+
+  if (backendError && isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-6 rounded-xl max-w-md text-center">
+          <h2 className="text-xl font-bold text-amber-800 dark:text-amber-400 mb-2">Backend Unavailable</h2>
+          <p className="text-sm text-amber-700 dark:text-amber-500 mb-4">
+            The application is having trouble connecting to the backend server. It might still be starting up.
+          </p>
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-500">
+            <div className="w-2 h-2 bg-amber-500 rounded-full animate-ping"></div>
+            Retrying connection...
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="mt-6 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
+          >
+            Logout and try different account
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
-    return <Auth onAuthSuccess={() => setIsAuthenticated(true)} />;
+    return (
+      <Auth 
+        onAuthSuccess={(user: string) => {
+          setIsAuthenticated(true);
+          setUsername(user);
+          localStorage.setItem("username", user);
+        }} 
+      />
+    );
   }
 
   const handleSelectSession = async (id: string) => {
@@ -186,6 +310,7 @@ function App() {
       <Sidebar 
         repos={repos}
         activeRepo={activeRepoId}
+        username={username || "User"}
         onSelectRepo={(id) => {
           setActiveRepoId(id);
           handleNewChat();
