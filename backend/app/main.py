@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from app.routers import ingest, chat, status, files, auth
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.middleware import ErrorHandlerMiddleware
 load_dotenv()
 
 
@@ -51,6 +52,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Outermost middleware first for requests (last for responses)
+app.add_middleware(ErrorHandlerMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
