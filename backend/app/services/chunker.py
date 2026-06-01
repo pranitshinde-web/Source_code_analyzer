@@ -104,18 +104,37 @@ class PythonASTSplitter:
         chunks.sort(key=lambda x: (x["metadata"].get("start_line", 0), x["metadata"].get("name", "")))
         return chunks
 
+    def _get_block_name(self, lines: List[str]) -> str:
+        """Heuristically derive a name for a top-level block."""
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            
+            # If it's an assignment (e.g., 'x = 1'), use the variable name
+            if "=" in stripped and not stripped.startswith(("import", "from")):
+                return stripped.split("=")[0].strip()
+            
+            # If it's a function call (e.g., 'setup()'), use the function name
+            if "(" in stripped and ")" in stripped:
+                return stripped.split("(")[0].split()[-1].strip()
+                
+        return "top_level_code"
+
     def _add_top_level_chunks(self, chunks: List[Dict[str, Any]], lines: List[str], start_line: int):
-        """Helper to split and add non-AST code blocks."""
+        """Helper to split and add non-AST code blocks with heuristic-based metadata."""
         text = "\n".join(lines).strip()
         if not text:
             return
             
+        name = self._get_block_name(lines)
+        
         sub_chunks = self.fallback_splitter.split_text(text)
         for sc in sub_chunks:
             chunks.append({
                 "content": sc,
                 "metadata": {
-                    "name": "module_level",
+                    "name": name,
                     "type": "module",
                     "start_line": start_line,
                     "end_line": start_line + len(lines) - 1,
@@ -152,7 +171,7 @@ def chunk_python_files(file_paths: list[str], repo_url: str) -> list[dict]:
             
             for i, chunk in enumerate(file_chunks):
                 all_chunks.append({
-                    "content": chunk["content"],
+                    "content": f"File: {rel_path}\n\n{chunk['content']}",
                     "metadata": {
                         "file_path": rel_path,
                         "chunk_index": i,
