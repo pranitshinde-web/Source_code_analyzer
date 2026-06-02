@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: source-code-analyzer-api
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/chroma_data:/app/chroma_data
+      - ./backend/tmp_repos:/app/tmp_repos
+
+  worker:
+    build: ./backend
+    container_name: source-code-analyzer-worker
+    command: celery -A app.core.celery_app worker --loglevel=info
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/chroma_data:/app/chroma_data
+      - ./backend/tmp_repos:/app/tmp_repos
+
+  frontend:
+    build: ./frontend
+    container_name: source-code-analyzer-frontend
+    ports:
+      - "5174:80"
+    depends_on:
+      - api

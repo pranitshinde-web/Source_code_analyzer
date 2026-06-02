@@ -1,5 +1,7 @@
 import ast
 import logging
+import os
+import traceback
 from typing import List, Dict, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import settings
@@ -113,11 +115,17 @@ class PythonASTSplitter:
             
             # If it's an assignment (e.g., 'x = 1'), use the variable name
             if "=" in stripped and not stripped.startswith(("import", "from")):
-                return stripped.split("=")[0].strip()
+                parts = stripped.split("=")[0].split()
+                if parts:
+                    return parts[-1].strip()
             
             # If it's a function call (e.g., 'setup()'), use the function name
             if "(" in stripped and ")" in stripped:
-                return stripped.split("(")[0].split()[-1].strip()
+                before_paren = stripped.split("(")[0].strip()
+                if before_paren:
+                    parts = before_paren.split()
+                    if parts:
+                        return parts[-1].strip()
                 
         return "top_level_code"
 
@@ -159,27 +167,51 @@ def chunk_python_files(file_paths: list[str], repo_url: str) -> list[dict]:
                 with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
             except UnicodeDecodeError:
-                # Handle non-utf8 files gracefully
                 logger.warning(f"Could not read {path} as UTF-8, skipping.")
                 continue
+            except Exception as e:
+                logger.warning(f"Failed to read file {path}: {e}")
+                continue
                 
-            # path is absolute, make it relative to repo root
-            rel_path = path.split(settings.TMP_REPOS_DIR)[-1].lstrip("/")
-            rel_path = "/".join(rel_path.split("/")[1:])
-            
-            file_chunks = ast_splitter.split_text(content, rel_path)
-            
-            for i, chunk in enumerate(file_chunks):
-                all_chunks.append({
-                    "content": f"File: {rel_path}\n\n{chunk['content']}",
-                    "metadata": {
-                        "file_path": rel_path,
-                        "chunk_index": i,
-                        "repo_url": repo_url,
-                        **chunk["metadata"]
-                    }
-                })
+            # Improved robust path processing
+            try:
+                # Get path relative to the tmp_repos root
+                norm_tmp = os.path.normpath(settings.TMP_REPOS_DIR)
+                norm_path = os.path.normpath(path)
+                
+                if norm_tmp in norm_path:
+                    raw_rel = norm_path.split(norm_tmp)[-1].lstrip(os.sep)
+                    rel_parts = raw_rel.split(os.sep)
+                    if len(rel_parts) >= 2:
+                        rel_path = os.path.join(*rel_parts[1:])
+                    else:
+                        rel_path = raw_rel
+                else:
+                    rel_path = os.path.basename(path)
+            except Exception as pe:
+                logger.warning(f"Path processing failed for {path}: {pe}")
+                rel_path = os.path.basename(path)
+
+            try:
+                logger.info(f"Chunking file: {rel_path}")
+                file_chunks = ast_splitter.split_text(content, rel_path)
+                
+                for i, chunk in enumerate(file_chunks):
+                    all_chunks.append({
+                        "content": f"File: {rel_path}\n\n{chunk.get('content', '')}",
+                        "metadata": {
+                            "file_path": rel_path,
+                            "chunk_index": i,
+                            "repo_url": repo_url,
+                            **(chunk.get("metadata", {}))
+                        }
+                    })
+            except Exception as fe:
+                logger.error(f"Error chunking content for {rel_path}: {fe}\n{traceback.format_exc()}")
+                # Don't fail the whole ingestion for one bad file
+                continue
+
         return all_chunks
     except Exception as e:
-        logger.error(f"Failed to chunk files: {e}")
+        logger.error(f"Critical failure in chunk_python_files: {e}\n{traceback.format_exc()}")
         raise ChunkError(f"Failed to process source files: {e}")

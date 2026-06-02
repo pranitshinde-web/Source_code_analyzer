@@ -12,6 +12,7 @@ The system follows a decoupled client-server architecture:
 *   **Backend**: A FastAPI application that orchestrates the ingestion pipeline and the RAG-powered chat system.
 *   **Vector Database**: ChromaDB for persistent storage of code embeddings and metadata.
 *   **AI Endpoints**: NVIDIA NIM (accessed via LangChain) for generating embeddings and streaming LLM responses.
+*   **Task Queue**: Celery with Redis for asynchronous background processing and reliable job management.
 
 ---
 
@@ -21,44 +22,28 @@ The backend is structured into **Routers** (API layer) and **Services** (logic l
 
 ### 3.1. API Layer (Routers)
 *   **Ingestion (`/ingest`)**:
-    *   `POST /ingest`: Triggers the background ingestion of a GitHub repository.
-    *   `DELETE /ingest/{repo_id}`: Deletes an indexed repository's collection from ChromaDB.
+    *   `POST /ingest`: Enqueues a Celery task for background ingestion of a GitHub repository.
+    *   `DELETE /ingest/{repo_id}`: Deletes an indexed repository's collection and data.
 *   **Chat (`/chat`)**:
-    *   `POST /chat`: Initiates a RAG-based chat session, returning a Server-Sent Events (SSE) stream of the LLM's response.
-    *   `DELETE /chat/session/{session_id}`: Clears the conversation history for a specific session.
-*   **Status (`/status`)**:
-    *   `GET /status/{repo_id}`: Retrieves the real-time progress of a repository ingestion job.
-    *   `GET /status`: Lists all current and past ingestion jobs.
-*   **Health (`/health`)**: A simple liveness probe for monitoring system uptime.
+    *   `POST /chat`: Initiates a RAG-based chat session, returning an SSE stream.
+*   **Evaluation (`/evaluate`)**:
+    *   `POST /evaluate`: Triggers a Ragas evaluation pipeline to measure RAG quality.
 
 ### 3.2. Core Services
-*   **Ingestion Service**: Orchestrates the multi-stage pipeline: Clone → Chunk → Embed → Store. It manages job states (queued, processing, done, error).
-*   **Chat Service**: Coordinates the RAG workflow, including context retrieval, history management, and formatting SSE frames.
-*   **Cloner Service**: Uses `GitPython` to perform shallow clones of repositories and extracts Python source files.
-*   **Chunker Service**: Splits code files into manageable snippets using `RecursiveCharacterTextSplitter`, preserving file paths and line numbers as metadata.
-*   **Embedder Service**: Interfaces with NVIDIA's embedding models to convert text chunks into high-dimensional vectors.
-*   **Vector Store Service**: Managed abstraction for ChromaDB operations, including collection management and upserts.
-*   **Retriever Service**: Performs semantic similarity searches to find the most relevant code chunks for a user's query.
-*   **LLM Service**: Generates context-aware answers using NVIDIA NIM models, incorporating repository context and session history.
+*   **Ingestion Service**: Coordinates the pipeline: Clone → Chunk → Embed → Store. Now runs as a distributed Celery task.
+*   **Evaluator Service**: Generates synthetic testsets and runs Ragas metrics (Faithfulness, Relevancy, etc.).
+*   **Chunker Service**: AST-aware Python code splitter for better semantic preservation.
+*   **Vector Store Service**: Managed abstraction for ChromaDB operations.
 
 ---
 
 ## 4. Data Flow
 
 ### 4.1. Ingestion Pipeline
-1.  **Request**: User submits a GitHub URL via the frontend.
-2.  **Job Queuing**: Backend generates a `repo_id` and queues a background task.
-3.  **Cloning**: Repository is cloned to a temporary directory.
-4.  **Chunking**: Python files are parsed and split into chunks (default 1000 chars) with metadata.
-5.  **Embedding**: Chunks are sent to NVIDIA NIM to generate vector embeddings.
-6.  **Storage**: Chunks, metadata, and embeddings are indexed in ChromaDB.
-
-### 4.2. Chat / RAG Pipeline
-1.  **Query**: User asks a question (e.g., "How is authentication implemented?").
-2.  **Retrieval**: The query is embedded and used to search ChromaDB for the top-K (default 6) relevant code chunks.
-3.  **Context Construction**: Retrieved chunks and previous chat turns (sliding window) are injected into a system prompt.
-4.  **Generation**: The LLM generates a response based **strictly** on the provided codebase context.
-5.  **Streaming**: The answer is streamed to the frontend in real-time via SSE.
+1.  **Request**: User submits a GitHub URL.
+2.  **Task Queuing**: API enqueues a `run_ingestion_task` in Redis and returns a `task_id`.
+3.  **Processing**: Celery workers pick up the task, perform cloning, chunking, and embedding.
+4.  **Storage**: Embeddings are stored in ChromaDB, and job status is updated in Redis.
 
 ---
 
@@ -69,25 +54,25 @@ The backend is structured into **Routers** (API layer) and **Services** (logic l
 | **Backend Framework** | FastAPI (Python 3.13+) |
 | **Web Server** | Uvicorn |
 | **Vector Database** | ChromaDB |
-| **AI Orchestration** | LangChain / LangChain NVIDIA AI Endpoints |
-| **LLM & Embeddings** | NVIDIA NIM (Nemotron-3-Nano or similar) |
+| **Task Queue** | Celery + Redis |
+| **AI Orchestration** | LangChain / NVIDIA AI Endpoints |
+| **LLM & Embeddings** | NVIDIA NIM (Nemotron-3-Nano) |
+| **RAG Evaluation** | RAGAS |
 | **Frontend Framework** | React 19 (Vite) |
-| **API Client** | Axios |
-| **Task Management** | FastAPI BackgroundTasks (In-memory) |
 
 ---
 
-## 6. Key Configuration Parameters
-Located in `backend/app/core/config.py`:
-*   `CHUNK_SIZE`: 1000 characters.
-*   `CHUNK_OVERLAP`: 200 characters.
-*   `RETRIEVAL_TOP_K`: 6 chunks.
-*   `MEMORY_WINDOW_SIZE`: 5 conversation turns.
-*   `CHAT_MODEL`: `nvidia/nemotron-3-nano-30b-a3b`.
+## 6. Scaling & Reliability
+
+### 6.1. Distributed Task Queue
+The transition to **Celery + Redis** enables horizontal scaling. Multiple workers can process heavy ingestion jobs in parallel without affecting API responsiveness.
+
+### 6.2. Failure Recovery
+*   **Exponential Backoff**: Tasks automatically retry on transient API failures (like rate limits).
+*   **Job Persistence**: Ingestion state is stored in Redis, ensuring visibility even across server restarts.
 
 ---
 
 ## 7. Development & Deployment
-*   **Backend**: Requires `NVIDIA_API_KEY` in a `.env` file. Run with `uvicorn app.main:app`.
-*   **Frontend**: Built with Vite, communicates with backend via defined `CORS_ORIGIN`.
-*   **Storage**: ChromaDB persists data in the `./chroma_data` directory by default.
+*   **Backend**: Requires `NVIDIA_API_KEY` and a running **Redis** instance.
+*   **ChromaDB**: Persists data in `./chroma_data`.

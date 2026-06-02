@@ -14,3 +14,6 @@ chromadb
 sqlalchemy
 python-jose[cryptography]
 passlib[bcrypt]
+celery[redis]
+redis
+pydantic-settings

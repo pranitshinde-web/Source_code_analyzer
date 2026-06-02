@@ -1,15 +1,15 @@
 import logging
 import os
 import shutil
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, HttpUrl, Field
-from typing import Literal
+from typing import Literal, Optional
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.history import ChatSession
 from app.models.user import User
-from app.services.ingestion import IngestionService
+from app.services.ingestion import IngestionService, run_ingestion_task
 from app.services.deps import get_chroma_client, get_current_user
 from app.services.vector_store import collection_exists, delete_collection
 from app.core.config import settings
@@ -23,13 +23,13 @@ class IngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     repo_id: str
-    status: Literal["queued", "already_indexed"]
+    task_id: Optional[str] = None
+    status: Literal["queued", "already_indexed", "processing"]
     message: str
 
 @router.post("", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_repo(
     body: IngestRequest,
-    background_tasks: BackgroundTasks,
     chroma_client = Depends(get_chroma_client),
     current_user: User = Depends(get_current_user)
 ):
@@ -49,13 +49,28 @@ async def ingest_repo(
         # Check if already running
         existing_job = IngestionService.get_job(repo_id)
         if existing_job and existing_job["status"] in ("queued", "processing"):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ingestion already in progress.")
+            return IngestResponse(
+                repo_id=repo_id,
+                status="processing",
+                message="Ingestion is already in progress."
+            )
             
-        # Queue background task
+        # Queue Celery task
         IngestionService.update_job(repo_id, status="queued", stage="waiting", detail="Job queued", progress=0)
-        background_tasks.add_task(IngestionService.run_ingestion, repo_id, repo_url, chroma_client)
+        task = run_ingestion_task.delay(repo_id, repo_url)
         
-        return IngestResponse(repo_id=repo_id, status="queued", message="Ingestion started.")
+        # Update job with task_id
+        IngestionService.update_job(
+            repo_id, status="queued", stage="queued", 
+            detail="Enqueued in Celery", progress=2, task_id=task.id
+        )
+        
+        return IngestResponse(
+            repo_id=repo_id, 
+            task_id=task.id,
+            status="queued", 
+            message="Ingestion started."
+        )
         
     except HTTPException:
         raise

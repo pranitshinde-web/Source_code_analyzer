@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIR: str = "./chroma_data"
     TMP_REPOS_DIR: str = "./tmp_repos"
     CORS_ORIGIN: str = "http://localhost:5174"
+    # Redis / Celery settings
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     # Security settings
     SECRET_KEY: str = "super-secret-key-change-me"
